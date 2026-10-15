@@ -464,6 +464,107 @@ def em_algarismos(texto: str, lingua: str = "es") -> str:
         return texto
 
 
+# ── A legenda chega aos pedaços (16/10) ─────────────────────────────────
+#
+# > «a voz diz bem "veintiocho mil" mas a legenda escreve 20.000 e depois
+# >  8.000» — Lucas, 16/10
+#
+# O Sonic manda a legenda em vários `textOutput` por resposta, e a app
+# junta-os com um espaço. Cada pedaço passava SOZINHO pelo `em_algarismos`:
+# um número partido entre dois pedaços («…veinte» | «y ocho mil…») saía
+# como dois números. Aqui a cauda numérica de cada pedaço fica retida até
+# chegar o seguinte — só se converte uma expressão quando está completa.
+
+#: Palavras que podem continuar um número: as dos números das três
+#: línguas, as ligações («y», «e», «and»), as vírgulas e o «por ciento».
+_PALAVRAS_DE_NUMERO = (
+    {p for lg in _UNIDADES.values() for p in lg}
+    | {p for lg in _ESCALAS.values() for p in lg}
+    | {p for lg in _CEM.values() for p in lg}
+    | {p for lg in _LIGA.values() for p in lg}
+    | {p for lg in _VIRGULA.values() for p in lg}
+    | {p for lg in _PORCENTO.values() for frase in lg for p in frase}
+)
+
+
+def _e_de_numero(token: str) -> bool:
+    t = token.lower()
+    return t.isdigit() or t in _PALAVRAS_DE_NUMERO
+
+
+class AlgarismosEmFluxo:
+    """`em_algarismos` para texto que chega aos pedaços. Nunca rebenta.
+
+    `separador` é o que junta dois pedaços: " " para os do Sonic (a app
+    junta-os com um espaço, e cada pedaço acaba numa palavra inteira); ""
+    para texto cortado em qualquer sítio (letra a letra), em que a última
+    palavra de um pedaço pode ainda não ter acabado.
+
+    `pedaco(texto)` devolve o que já se pode mostrar (pode ser ""); `fim()`
+    devolve o que ficou retido. Juntando tudo com o `separador` dá o mesmo
+    que `em_algarismos` do texto inteiro.
+    """
+
+    def __init__(self, lingua: str = "es", separador: str = " ") -> None:
+        self.lingua = lingua
+        self.separador = separador
+        self._retido = ""
+
+    @property
+    def retido(self) -> str:
+        return self._retido
+
+    def pedaco(self, texto: str) -> str:
+        if not texto:
+            return ""
+        if self._retido:
+            texto = self._retido + self.separador + texto
+        self._retido = ""
+        try:
+            tokens = _PALAVRA.findall(texto)
+            k = len(tokens)
+            # Com separador vazio a última palavra pode estar a meio
+            # («veint»): fica sempre, se o pedaço não acabou num espaço ou
+            # numa pontuação.
+            if not self.separador and k and (tokens[-1][0].isalnum()):
+                k -= 1
+            # A cauda numérica (com os espaços entre as palavras dela).
+            j, primeira = k, True
+            while j > 0:
+                t = tokens[j - 1]
+                if t.isspace():
+                    j -= 1
+                    continue
+                if _e_de_numero(t):
+                    j, primeira = j - 1, False
+                    continue
+                # «uno de» | «agosto»: o dia só se lê com o mês a seguir.
+                if primeira and t.lower() == "de":
+                    i = j - 2
+                    while i >= 0 and tokens[i].isspace():
+                        i -= 1
+                    if i >= 0 and _e_de_numero(tokens[i]):
+                        j, primeira = j - 1, False
+                        continue
+                break
+            # Os espaços antes da cauda ficam do lado de quem sai.
+            while j < k and tokens[j].isspace():
+                j += 1
+            cabeca, cauda = "".join(tokens[:j]), "".join(tokens[j:])
+            if self.separador:
+                cabeca, cauda = cabeca.rstrip(), cauda.lstrip()
+            self._retido = cauda
+            return em_algarismos(cabeca, self.lingua) if cabeca else ""
+        except Exception:  # noqa: BLE001 — uma legenda nunca pode partir a voz
+            self._retido = ""
+            return em_algarismos(texto, self.lingua)
+
+    def fim(self) -> str:
+        """O que ficou retido, já convertido. Deixa o fluxo vazio."""
+        resto, self._retido = self._retido, ""
+        return em_algarismos(resto, self.lingua) if resto.strip() else ""
+
+
 # ── Os números que vão PARA o modelo ────────────────────────────────────
 #
 # O contrário do de cima. O motor de SQL devolve números crus — «6153185.72»
@@ -498,6 +599,34 @@ def _agrupar(inteiro: str, lingua: str) -> str:
     return s if lingua == "en" else s.replace(",", ".")
 
 
+#: Um número no formato americano, «28,000» / «6,153,185.72», com o «$»
+#: opcional à frente (16/10: «$28,000» ia ao modelo como «veintiocho coma
+#: cero cero cero» — a vírgula lia-se como decimal).
+_AMERICANO = re.compile(
+    r"(?<![\w.,])(\$\s?|USD\s?)?(\d{1,3}(?:,\d{3})+)(?:\.(\d+))?(?![\w]|[.,]\d)",
+    re.I,
+)
+
+
+def _desagrupar_americano(texto: str) -> str:
+    """«$28,000» → «28000 USD»; «6,153,185.72» → «6153185.72».
+
+    Só quando é inequívoco: com «$»/«USD» à frente, com dois grupos de
+    milhar ou mais, ou com decimais com ponto. «28,000» sozinho pode ser
+    um decimal à europeia, e fica.
+    """
+
+    def trocar(m: "re.Match[str]") -> str:
+        moeda, inteiro, decimais = m.group(1), m.group(2), m.group(3)
+        em_dolares = re.match(r"\s*(?:USD\b|\$|d[oó]lar|dollar)", m.string[m.end() :], re.I)
+        if not (moeda or em_dolares or inteiro.count(",") >= 2 or decimais):
+            return m.group(0)
+        n = inteiro.replace(",", "") + (f".{decimais}" if decimais else "")
+        return f"{n} USD" if moeda else n
+
+    return _AMERICANO.sub(trocar, texto)
+
+
 def numeros_no_formato(texto: str, lingua: str = "es") -> str:
     """«6153185.72» → «6.153.185,72 €» (es/pt) ou «€6,153,185.72» (en).
 
@@ -514,6 +643,8 @@ def numeros_no_formato(texto: str, lingua: str = "es") -> str:
     if not texto or lingua not in ("es", "pt", "en"):
         return texto
     try:
+        if lingua != "en":
+            texto = _desagrupar_americano(texto)
         fala_de_dinheiro = bool(_DINHEIRO.search(texto))
         out: List[str] = []
         pos = 0
@@ -531,8 +662,11 @@ def numeros_no_formato(texto: str, lingua: str = "es") -> str:
             antes, depois = texto[pos : m.start()], texto[m.end() :]
             com_euro_antes = _EURO_ANTES.search(texto[: m.start()])
             com_euro_depois = _EURO_DEPOIS.match(depois)
-            dinheiro = bool(com_euro_antes or com_euro_depois) or (
-                decimais is not None and len(decimais) == 2 and fala_de_dinheiro
+            # Em dólares já tem moeda: não se lhe põe «€».
+            em_dolares = re.match(r"\s*(?:USD\b|\$|d[oó]lar|dollar)", depois, re.I)
+            dinheiro = not em_dolares and (
+                bool(com_euro_antes or com_euro_depois)
+                or (decimais is not None and len(decimais) == 2 and fala_de_dinheiro)
             )
             numero = _agrupar(inteiro, lingua)
             if decimais is not None:
@@ -729,9 +863,14 @@ def _decimais_por_extenso(d: str, lingua: str) -> str:
 #: Um número já no formato es/pt («563.919,19», «7,3», «12»), com «€» ou
 #: «%» opcionais a seguir. As datas e as horas tratam-se antes, à parte.
 _NUMERO_FORMATADO = re.compile(
-    r"(?<![\w.,:/-])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?(?![\w]|[.,:/-]\d)" r"(\s*(?:€|%|EUR\b))?",
+    r"(?<![\w.,:/-])(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?(?![\w]|[.,:/-]\d)"
+    r"(\s*(?:€|%|EUR\b|USD\b|\$))?",
     re.I,
 )
+
+#: «$28.000» → «28.000 USD»: a moeda à frente passa para trás, onde o
+#: `por_extenso` a lê («veintiocho mil dólares»).
+_DOLAR_ANTES = re.compile(r"(?:\$|\bUSD)\s?(\d[\d.,]*\d|\d)(?![\d.,]*\s*(?:USD\b|\$))", re.I)
 
 _DATA_DMY = re.compile(r"(?<![\w/.-])(\d{1,2})/(\d{1,2})/(\d{4})(?![\w/])")
 _DATA_ISO = re.compile(r"(?<![\w/.-])(\d{4})-(\d{2})-(\d{2})(?![\w-])")
@@ -805,7 +944,7 @@ def por_extenso(texto: str, lingua: str = "es") -> str:
         seg = None if (u or decimais is not None) else _PALAVRA_SEGUINTE.match(texto, m.end())
         fem = seg is not None and _feminino(seg.group(1))
         # «un pedido», «veintiún pedidos», «un euro»; sozinho, «uno».
-        apocope = decimais is None and (u in ("€", "eur") or seg is not None)
+        apocope = decimais is None and (u in ("€", "eur", "usd", "$") or seg is not None)
         palavras = _inteiro(n, lingua, fem=fem, apocope=apocope)
         if decimais is not None:
             palavras += f" {virgula} " + _decimais_por_extenso(decimais, lingua)
@@ -813,6 +952,10 @@ def por_extenso(texto: str, lingua: str = "es") -> str:
             if decimais is None and n >= 10**6 and n % 10**6 == 0:
                 palavras += " de"  # «un millón de euros»
             palavras += " euro" if (n == 1 and decimais is None) else " euros"
+        elif u in ("usd", "$"):
+            if decimais is None and n >= 10**6 and n % 10**6 == 0:
+                palavras += " de"  # «un millón de dólares»
+            palavras += " dólar" if (n == 1 and decimais is None) else " dólares"
         elif u == "%":
             palavras += f" {pct}"
         elif seg is not None and n >= 10**6 and n % 10**6 == 0:
@@ -851,6 +994,7 @@ def por_extenso(texto: str, lingua: str = "es") -> str:
         texto = _DATA_DMY.sub(data_dmy, texto)
         texto = _DATA_ISO.sub(data_iso, texto)
         texto = _HORA.sub(hora, texto)
+        texto = _DOLAR_ANTES.sub(r"\1 USD", texto)
         return _NUMERO_FORMATADO.sub(trocar, texto)
     except Exception:  # noqa: BLE001 — o resultado chega ao modelo de qualquer maneira
         return texto

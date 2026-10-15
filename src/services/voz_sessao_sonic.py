@@ -36,7 +36,7 @@ from src.services import voz_legenda_ao_vivo as legenda_viva
 from src.services import voz_paciencia as paciencia
 from src.services import voz_ponte_sonic as ponte
 from src.services import voz_recado as recado
-from src.services.numeros_falados import em_algarismos
+from src.services.numeros_falados import AlgarismosEmFluxo
 from src.services.pontuacao import pontuar_pergunta
 
 logger = logging.getLogger(__name__)
@@ -253,9 +253,20 @@ async def servir(
     ritmo = ponte.ParaORitmoDaApp(falada.SAIDA_HZ)
 
     ultimo_envio = _time.monotonic()
+    # ── A pessoa saiu: nem mais um som (16/10) ──────────────────────
+    #
+    # > «A voz continua a falar depois de pausar ou sair do Live Talk.»
+    # > — Lucas, 16/10
+    #
+    # Depois do `end` (ou de o socket cair) o fecho ainda espera até 5 s
+    # que o `reencaminhar` esvazie a fila — para o TEXTO e os turnos não se
+    # perderem. O som, esse, já não tem quem o queira ouvir.
+    a_fechar = False
 
     async def mandar(m: Dict[str, Any]) -> None:
         nonlocal ultimo_envio
+        if a_fechar and ponte.e_audio(m):
+            return
         ultimo_envio = _time.monotonic()
         if ponte.e_audio(m):
             await websocket.send_bytes(ritmo.alimentar(m["pcm"]))
@@ -441,11 +452,33 @@ async def servir(
     # interessa: o resto do som e da legenda dela vai para o lixo até ela
     # acabar ou até a pessoa voltar a falar. Ver o `barge_in` em baixo.
     a_descartar = False
+    # A Sky está a falar: já saiu som desta resposta e a vez ainda não voltou.
+    a_falar = False
+    # A legenda da Sky, que chega aos pedaços: ver `AlgarismosEmFluxo`.
+    legenda_da_sky = AlgarismosEmFluxo(locale)
+
+    async def descartar_a_resposta() -> None:
+        """A resposta em curso já não interessa: cala-se e a vez é da pessoa."""
+        nonlocal a_descartar, a_falar
+        a_descartar = True
+        a_falar = False
+        legenda_da_sky.fim()  # a cauda era da resposta interrompida
+        try:
+            await mandar({"type": "discard_audio"})
+            await mandar({"type": "state", "value": "user_speaking"})
+        except Exception:  # noqa: BLE001
+            pass
 
     async def reencaminhar() -> None:
         """Eventos da sessão → mensagens para a app."""
-        nonlocal a_descartar
+        nonlocal a_descartar, a_falar
         async for ev in sessao.eventos():
+            if isinstance(ev, falada.Audio) and not a_descartar:
+                a_falar = True
+            elif isinstance(
+                ev, (falada.VezDaPessoa, falada.FalaAcabou, falada.Interrompido, falada.Ouvido)
+            ):
+                a_falar = False
             if a_descartar:
                 if isinstance(ev, (falada.Ouvido, falada.FalaAcabou, falada.VezDaPessoa)):
                     # A resposta interrompida acabou, ou a pessoa já está a
@@ -463,49 +496,71 @@ async def servir(
             # O que se lê — no ecrã de voz e no fio — arrumado aqui, uma vez:
             # a pergunta com «¿…?», e os números ditos em algarismos (o texto
             # do Sonic é o que ele DIZ, e vem sempre por extenso).
+            #
+            # A legenda da Sky chega aos pedaços e um número pode vir
+            # partido entre dois («…veinte» | «y ocho mil»): a cauda
+            # numérica de cada pedaço fica retida até ao seguinte, e sai
+            # antes de qualquer outro evento que não seja som (16/10).
+            fila: List[Any] = [ev]
             if not e_ditado:
                 if isinstance(ev, falada.Ouvido):
-                    ev = falada.Ouvido(texto=pontuar_pergunta(ev.texto, locale))
+                    fila = [falada.Ouvido(texto=pontuar_pergunta(ev.texto, locale))]
                 elif isinstance(ev, falada.Dito):
-                    ev = falada.Dito(texto=em_algarismos(ev.texto, locale))
-            # ── O registo de cada turno (16/10) ─────────────────────────
-            #
-            # > «¿Qué tienda tuvo más?» — o turno cortado de 16/10 não
-            # > deixou rasto nenhum: não se sabia o que o Sonic ouviu, nem o
-            # > nível do microfone. Agora fica, sem conteúdo: palavras que o
-            # > Sonic transcreveu contra as da legenda ao vivo (que ouve o
-            # > microfone SEM o portão), e o que o portão mediu. Sonic com
-            # > menos palavras do que a legenda = o fim da frase perdeu-se.
-            if portao is not None and isinstance(ev, falada.Ouvido) and ev.texto.strip():
-                logger.info(
-                    "voz/sonic: turno ouvido (cliente=%s, palavras sonic=%d legenda=%d, "
-                    "entregas=%d, portao=%s)",
-                    getattr(ctx, "slug", "?"),
-                    len(ev.texto.split()),
-                    len(portao.ultimas_palavras.split()),
-                    portao.entregas,
-                    portao.medidas(),
-                )
-                portao.recomecar_medidas()
-            # Os turnos guardam-se aqui porque é aqui que passam os dois
-            # lados da conversa.
-            if isinstance(ev, falada.Ouvido) and ev.texto.strip():
-                turnos.append(("user", ev.texto.strip()))
-            elif isinstance(ev, falada.Dito) and ev.texto.strip():
-                turnos.append(("sky", ev.texto.strip()))
-            # A ditar, só o que a PESSOA disse atravessa. A resposta da
-            # Sky — texto e som — fica aqui: ninguém a pediu, e o
-            # telemóvel diria-a em voz alta por cima de quem dita.
-            if e_ditado and not isinstance(ev, (falada.Ouvido, falada.Falhou)):
-                continue
-            for m in ponte.para_o_protocolo(ev):
+                    pronto = legenda_da_sky.pedaco(ev.texto)
+                    fila = [falada.Dito(texto=pronto)] if pronto else []
+                elif not isinstance(ev, falada.Audio):
+                    resto = legenda_da_sky.fim()
+                    if resto:
+                        fila = [falada.Dito(texto=resto), ev]
+            for ev in fila:
+                # ── O registo de cada turno (16/10) ─────────────────────────
+                #
+                # > «¿Qué tienda tuvo más?» — o turno cortado de 16/10 não
+                # > deixou rasto nenhum: não se sabia o que o Sonic ouviu, nem o
+                # > nível do microfone. Agora fica, sem conteúdo: palavras que o
+                # > Sonic transcreveu contra as da legenda ao vivo (que ouve o
+                # > microfone SEM o portão), e o que o portão mediu. Sonic com
+                # > menos palavras do que a legenda = o fim da frase perdeu-se.
+                if portao is not None and isinstance(ev, falada.Ouvido) and ev.texto.strip():
+                    logger.info(
+                        "voz/sonic: turno ouvido (cliente=%s, palavras sonic=%d legenda=%d, "
+                        "entregas=%d, portao=%s)",
+                        getattr(ctx, "slug", "?"),
+                        len(ev.texto.split()),
+                        len(portao.ultimas_palavras.split()),
+                        portao.entregas,
+                        portao.medidas(),
+                    )
+                    portao.recomecar_medidas()
+                # Os turnos guardam-se aqui porque é aqui que passam os dois
+                # lados da conversa.
+                if isinstance(ev, falada.Ouvido) and ev.texto.strip():
+                    turnos.append(("user", ev.texto.strip()))
+                elif isinstance(ev, falada.Dito) and ev.texto.strip():
+                    turnos.append(("sky", ev.texto.strip()))
+                # A ditar, só o que a PESSOA disse atravessa. A resposta da
+                # Sky — texto e som — fica aqui: ninguém a pediu, e o
+                # telemóvel diria-a em voz alta por cima de quem dita.
+                if e_ditado and not isinstance(ev, (falada.Ouvido, falada.Falhou)):
+                    continue
+                for m in ponte.para_o_protocolo(ev):
+                    try:
+                        await mandar(m)
+                    except Exception:
+                        # O socket fechou-se por baixo. Não vale um registo
+                        # por pedaço de áudio.
+                        fim.set()
+                        return
+        # A sessão acabou com uma cauda retida: fica no fio, e vai ao ecrã
+        # se o socket ainda estiver de pé.
+        resto = "" if e_ditado else legenda_da_sky.fim()
+        if resto:
+            turnos.append(("sky", resto))
+            for m in ponte.para_o_protocolo(falada.Dito(texto=resto)):
                 try:
                     await mandar(m)
                 except Exception:
-                    # O socket fechou-se por baixo. Não vale um registo
-                    # por pedaço de áudio.
-                    fim.set()
-                    return
+                    break
         fim.set()
 
     async def manter_viva() -> None:
@@ -591,6 +646,7 @@ async def servir(
         while not fim.is_set():
             msg = await websocket.receive()
             if msg.get("type") == "websocket.disconnect":
+                a_fechar = True
                 break
             if msg.get("bytes") is not None:
                 if not silenciado:
@@ -621,6 +677,11 @@ async def servir(
                 # alimentar: o `manter_viva` continua a mandar silêncio,
                 # senão a sessão morre em 55 s.
                 silenciado = True
+                # Pausar com a Sky a falar cala-a (16/10). A app nova já
+                # manda `barge_in`; uma app antiga só manda `mute`, e a
+                # resposta continuava a chegar e a tocar.
+                if a_falar and not a_descartar:
+                    await descartar_a_resposta()
             elif accao == "unmute":
                 silenciado = False
             elif accao == "barge_in":
@@ -632,12 +693,7 @@ async def servir(
                 # resposta antiga continuava a chegar e a tocar por cima da
                 # pergunta nova — o contrário do que o Gemini e o ChatGPT
                 # fazem.
-                a_descartar = True
-                try:
-                    await mandar({"type": "discard_audio"})
-                    await mandar({"type": "state", "value": "user_speaking"})
-                except Exception:  # noqa: BLE001
-                    pass
+                await descartar_a_resposta()
             elif accao in ("end", "stop", "end_turn"):
                 # `stop`/`end_turn` eram o fim de turno do
                 # premir-para-falar, que já não existe como modo de
@@ -645,6 +701,7 @@ async def servir(
                 # fecha a sessão, e os outros não podem fechá-la por
                 # engano — um cliente antigo manda-os.
                 if accao == "end":
+                    a_fechar = True
                     break
     except Exception:
         logger.exception(
@@ -669,6 +726,7 @@ async def servir(
         #   3. espera-se que o `reencaminhar` esvazie a fila.
         #
         # Com prazo, porque um socket já morto não pode pendurar o fecho.
+        a_fechar = True  # daqui em diante só texto: ver `mandar`
         batida.cancel()
         legendagem.cancel()
         if legenda is not None:
