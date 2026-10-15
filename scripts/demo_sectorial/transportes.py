@@ -160,6 +160,26 @@ METRICAS = [
         unidade="portes",
         agregacao="count",
     ),
+    # 15/10/2026: «¿Qué rutas tienen el mayor porcentaje de portes fuera de
+    # plazo?» saiu com Porto→Madrid a 94 % e 18 rotas acima de 55 % — a IA
+    # contou «chegou depois da hora prometida», sem a tolerância. Na base,
+    # 66 % dos portes chegam depois da hora prometida e só 7,7 % passam a
+    # tolerância. A percentagem tem de estar escrita como métrica, com o
+    # denominador dito: todos os portes do grupo.
+    Metrica(
+        "Porcentaje de portes fuera de plazo",
+        "Portes entregados después de la hora prometida MÁS la tolerancia del "
+        "cliente, sobre TODOS los portes del grupo (por ruta: todos los portes "
+        "de los viajes de esa ruta). Llegar después de la hora prometida no "
+        "basta — dos de cada tres portes lo hacen, casi siempre dentro de la "
+        "tolerancia. Se decide en Carga (portes y clientes).",
+        "SELECT 100.0 * COUNT(*) FILTER (WHERE s.delivered_at > s.promised_at "
+        "+ (c.sla_minutes * INTERVAL '1 minute')) / NULLIF(COUNT(*), 0) "
+        "FROM freight.shipments s "
+        "JOIN freight.clients c ON c.id = s.client_id",
+        unidade="%",
+        agregacao="ratio",
+    ),
     Metrica(
         "Vehículos que no se pagan",
         "Vehículos cuya aportación en el periodo es negativa: lo que "
@@ -195,6 +215,18 @@ GLOSSARIO = [
         "la llegada cuente como retraso. Varía por contrato: cuarenta "
         "minutos no es lo mismo en cerámica que en fruta.",
         ["SLA", "tolerancia", "ventana de entrega"],
+    ),
+    Termo(
+        "Porte fuera de plazo",
+        "Una entrega que llega después de la hora prometida MÁS la tolerancia "
+        "acordada con ese cliente (los minutos del «Plazo del cliente», "
+        "freight.clients.sla_minutes). Llegar después de la hora prometida no "
+        "basta: dos de cada tres portes llegan algo después y casi todos dentro "
+        "de la tolerancia. Se decide en Carga, con freight.shipments y "
+        "freight.clients; por ruta, el porcentaje se cuenta sobre todos los "
+        "portes de los viajes de esa ruta, no solo sobre los que fallan.",
+        ["fuera de plazo", "incumple el plazo", "incumplir el plazo",
+         "retraso", "porte tarde", "entrega tardía"],
     ),
     Termo(
         "Coste completo del vehículo",
@@ -664,7 +696,15 @@ SECTOR = Sector(
                     "Portes fuera de plazo",
                     "kpi2",
                     "carga",
-                    f"SELECT COUNT(*) AS v {_PLAZO} AND {_FUERA}",
+                    # A fórmula da métrica «Portes fuera de plazo», letra a
+                    # letra (15/10/2026): o cartão e o glossário contam o
+                    # mesmo da mesma maneira. Dá o mesmo que pela viagem —
+                    # todos os portes são de viagens concluídas e
+                    # delivered_at = arrived_at (verificado na skydemo).
+                    "SELECT COUNT(*) AS v FROM freight.shipments s "
+                    "JOIN freight.clients c ON c.id = s.client_id "
+                    "WHERE s.delivered_at > s.promised_at "
+                    "+ (c.sla_minutes * INTERVAL '1 minute')",
                     legenda="Cada uno es una llamada del cliente",
                 ),
                 kpi(
