@@ -149,6 +149,29 @@ METRICAS = [
         agregacao="ratio",
     ),
     Metrica(
+        "Portes fuera de plazo",
+        "Portes entregados después de la hora prometida más la tolerancia "
+        "del cliente. El porte lleva su propia fecha y hora de entrega, "
+        "así que se cuenta sin salir de Carga — y da lo mismo que contarlo "
+        "por el viaje, porque son la misma hora.",
+        "SELECT COUNT(*) FROM freight.shipments s "
+        "JOIN freight.clients c ON c.id = s.client_id "
+        "WHERE s.delivered_at > s.promised_at + (c.sla_minutes * INTERVAL '1 minute')",
+        unidade="portes",
+        agregacao="count",
+    ),
+    Metrica(
+        "Vehículos que no se pagan",
+        "Vehículos cuya aportación en el periodo es negativa: lo que "
+        "facturan sus portes no cubre lo que el propio camión cuesta "
+        "(gasóleo, horas de conductor, peajes, taller y coste fijo "
+        "mensual de leasing, seguro e impuesto). La misma cuenta que el "
+        "panel «Rentabilidad de flota».",
+        _FROTA + " SELECT COUNT(*) FROM frota WHERE ingreso < coste",
+        unidade="vehículos",
+        agregacao="count",
+    ),
+    Metrica(
         "Aportación por vehículo",
         "Lo que cada camión ingresa menos lo que él mismo cuesta. No es "
         "beneficio: la estructura de la empresa no está aquí.",
@@ -179,6 +202,17 @@ GLOSSARIO = [
         "(leasing, seguro e impuesto). Cada parcela vive en un sistema "
         "distinto, y es la suma lo que nadie tiene.",
         ["coste total", "coste real"],
+    ),
+    Termo(
+        "Vehículo que no se paga",
+        "Vehículo cuya aportación es negativa en el periodo: la facturación "
+        "de sus portes menos todo lo que él mismo cuesta — gasóleo, horas "
+        "de conductor, peajes, taller y el coste fijo mensual (leasing o "
+        "amortización, seguro e impuesto). No es el beneficio de la "
+        "empresa: la estructura no está aquí. Suelen ser los más viejos, "
+        "que siguen saliendo porque «ya están pagados».",
+        ["no se paga", "vehículo que pierde dinero", "aportación negativa",
+         "camión que no compensa"],
     ),
     Termo(
         "Días fuera de la carretera",
