@@ -7,6 +7,7 @@
 # no such table: <name>` at runtime when the service layer queries it.
 from src.models.agent import Agent, AgentExecution, AgentFinding
 from src.models.ai import (
+    AIContentReport,
     AIFeedback,
     AIHistory,
     AIQuery,
@@ -137,6 +138,7 @@ __all__ = [
     "AIQuery",
     "AIHistory",
     "AIFeedback",
+    "AIContentReport",
     "Pipeline",
     "PipelineStep",
     "ChatMessage",

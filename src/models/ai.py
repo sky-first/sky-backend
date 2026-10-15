@@ -343,3 +343,58 @@ class AIFeedback(Base):
 
     def __repr__(self) -> str:
         return f"<AIFeedback(id={self.id}, query_id={self.query_id}, user_id={self.user_id}, rating={self.rating})>"
+
+
+#: Os motivos que a app oferece ao reportar uma resposta. Curtos de propósito:
+#: quem reporta não tem de escrever um relatório, e quem lê consegue filtrar.
+MOTIVOS_DE_DENUNCIA = ("offensive", "wrong", "other")
+
+
+class AIContentReport(Base):
+    """Uma resposta da IA reportada por quem a leu (15/10/2026).
+
+    Exigência da Google Play (*AI-Generated Content*): uma app com chatbot tem
+    de deixar o utilizador reportar conteúdo ofensivo **dentro da app**. Mas o
+    registo serve além da loja: «errado» é o sinal de qualidade que faltava.
+
+    O alvo é UMA de duas coisas — uma mensagem da conversa (`message_id`) ou
+    uma descoberta de agente (`finding_id`). Sem chave estrangeira nos alvos,
+    de propósito: a mensagem pode ser apagada depois, e a denúncia tem de
+    ficar. Por isso guarda-se também `conteudo` — o texto tal como estava
+    quando foi reportado.
+    """
+
+    __tablename__ = "ai_content_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    message_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    finding_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    query_id = Column(UUID(as_uuid=True), nullable=True)
+    motivo = Column(String(20), nullable=False)
+    texto = Column(Text, nullable=True)
+    conteudo = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "motivo IN ('offensive', 'wrong', 'other')", name="ck_ai_content_reports_motivo"
+        ),
+        CheckConstraint(
+            "(message_id IS NOT NULL AND finding_id IS NULL)"
+            " OR (message_id IS NULL AND finding_id IS NOT NULL)",
+            name="ck_ai_content_reports_um_alvo",
+        ),
+        Index("idx_ai_content_reports_created_at", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<AIContentReport(id={self.id}, message_id={self.message_id}, "
+            f"finding_id={self.finding_id}, motivo={self.motivo})>"
+        )

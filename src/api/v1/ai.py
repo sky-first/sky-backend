@@ -33,6 +33,8 @@ from src.repositories.page import PageRepository
 from src.repositories.space import SpaceRepository
 from src.schemas.ai import (
     AIHistoryItem,
+    AIReportRequest,
+    AIReportResponse,
     AIQueryRequest,
     AIQueryResponse,
     AnalyzeQuestionRequest,
@@ -1198,9 +1200,9 @@ async def send_chat_message_stream(
                                 contexto={
                                     "connection_id": resolved_connection_id,
                                     "connection_ids": resolved_all_connection_ids,
-                                    "space_id": None
-                                    if scope_space_id == "default"
-                                    else str(scope_space_id),
+                                    "space_id": (
+                                        None if scope_space_id == "default" else str(scope_space_id)
+                                    ),
                                     "crew_id": getattr(message_data, "crew_id", None),
                                     "is_personal": scope_is_personal,
                                 },
@@ -1993,6 +1995,49 @@ async def submit_feedback(
     ai_service = AIService(db)
     await ai_service.submit_feedback(current_user.id, feedback_data)
     return SuccessResponse(message="Feedback submitted successfully")
+
+
+@router.post(
+    "/report",
+    response_model=AIReportResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+    summary="Reportar uma resposta da IA",
+    description=(
+        "Grava, na base do cliente, a denúncia de uma resposta da Sky "
+        "(`message_id`) ou de uma descoberta de agente (`finding_id`) — "
+        "exactamente um dos dois. `reason`: offensive | wrong | other; `text` "
+        "opcional (até 2000). 404 se quem reporta não pode ver o alvo (a mesma "
+        "porta que a leitura: inexistente e proibido dizem o mesmo). Exigência "
+        "da política *AI-Generated Content* da Google Play."
+    ),
+)
+async def report_ai_content(
+    body: AIReportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> AIReportResponse:
+    from src.core.exceptions import NotFoundError
+    from src.services.denuncias_ia import AlvoInvalido, reportar
+
+    try:
+        linha = await reportar(
+            db,
+            current_user,
+            message_id=body.message_id,
+            finding_id=body.finding_id,
+            motivo=body.reason,
+            texto=body.text,
+        )
+    except AlvoInvalido as erro:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(erro))
+    except NotFoundError as erro:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(erro))
+    return AIReportResponse(id=linha.id, created_at=linha.created_at)
 
 
 @router.post(
