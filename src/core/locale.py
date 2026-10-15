@@ -67,6 +67,14 @@ def resolve_locale(request_locale: str | None, user: object | None) -> str:
 # ---------------------------------------------------------------------------
 
 _MESSAGES: dict[str, dict[str, str]] = {
+    # A conta é da organização (15/10/2026). O utilizador não se apaga a si
+    # próprio: quem cria e remove contas é o administrador do cliente (ou a
+    # Consola). O `POST /privacy/account/delete` responde isto e não apaga nada.
+    "account_managed_by_org": {
+        "pt": "A sua conta é gerida pela sua organização; peça ao administrador para a eliminar.",
+        "en": "Your account is managed by your organization; ask your administrator to delete it.",
+        "es": "Su cuenta la gestiona su organización; pida a su administrador que la elimine.",
+    },
     # ⚠️ **Isto estava em português do Brasil.**
     #
     # «Pensando…», «Mencionaram você», «na aba Editar», «uma conexão». A web

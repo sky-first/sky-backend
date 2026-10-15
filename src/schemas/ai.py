@@ -376,6 +376,38 @@ class FeedbackRequest(BaseModel):
     )
 
 
+class AIReportRequest(BaseModel):
+    """Reportar uma resposta da IA (ou uma descoberta de agente).
+
+    Exactamente um alvo: ``message_id`` (resposta da Sky numa conversa) ou
+    ``finding_id`` (descoberta de um agente).
+    """
+
+    message_id: Optional[UUID] = Field(default=None, description="messages.id da resposta da Sky.")
+    finding_id: Optional[UUID] = Field(default=None, description="agent_findings.id da descoberta.")
+    reason: str = Field(..., pattern="^(offensive|wrong|other)$")
+    text: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Comentário opcional de quem reporta.",
+    )
+
+    @field_validator("text")
+    @classmethod
+    def _texto_vazio_e_nada(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+
+class AIReportResponse(BaseModel):
+    """Recibo de uma denúncia gravada."""
+
+    id: UUID
+    created_at: datetime
+
+
 class GenerateSQLRequest(BaseModel):
     """Generate SQL request schema."""
 

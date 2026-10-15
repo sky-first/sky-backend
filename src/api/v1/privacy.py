@@ -1,13 +1,13 @@
 """Privacy endpoints — DSAR export and erasure (GDPR Art. 15 + 17)."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db_session
-from src.core.exceptions import BadRequestError, ForbiddenError
+from src.core.exceptions import ContaGeridaPelaOrganizacaoError, ForbiddenError
 from src.core.permissions import is_tenant_admin
 from src.models.user import User
 from src.services.dsar_service import DSARService
@@ -72,22 +72,32 @@ async def dsar_delete(
 
 @router.post(
     "/account/delete",
-    status_code=status.HTTP_200_OK,
-    summary="Delete my own account (GDPR Art. 17)",
+    status_code=status.HTTP_403_FORBIDDEN,
+    summary="Autoeliminação desligada — a conta é da organização",
     description=(
-        "Self-service account deletion: the authenticated user erases their own "
-        "account and data — no admin, no support ticket. Required by App Store "
-        "review guideline 5.1.1(v) for any app that offers account creation."
+        "Decisão de 15/10/2026: a conta Sky é criada e removida pela "
+        "organização do cliente. Este endpoint responde sempre **403** "
+        "(`details.reason = conta_gerida_pela_organizacao`, frase na língua de "
+        "quem pede) e **não apaga nada**. A eliminação continua a existir pelo "
+        "administrador da organização (`POST /privacy/dsar/delete`, remoção de "
+        "pessoas do cliente) e pela Consola."
     ),
+    responses={
+        401: {"description": "Sem sessão"},
+        403: {"description": "Conta gerida pela organização"},
+    },
 )
 async def delete_my_account(
     request: SelfDeleteRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
+    accept_language: Optional[str] = Header(default=None),
 ) -> Dict[str, Any]:
-    """Erase the caller's own account (soft-delete + anonymize mentions)."""
-    if not request.confirm:
-        raise BadRequestError("Account deletion requires confirm=true")
+    """Recusa a autoeliminação, sem tocar na base."""
+    from src.core.locale import lingua_da_interface
 
-    dsar = DSARService(db)
-    return await dsar.erase_user(current_user.email)
+    lingua = lingua_da_interface(
+        None,
+        getattr(current_user, "preferences", None) or {},
+        locale_do_pedido=(accept_language or "").split(",")[0].strip() or None,
+    )
+    raise ContaGeridaPelaOrganizacaoError(lingua)
